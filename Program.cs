@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,6 +8,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 var PlayerMap = new Dictionary<WebSocket, WebSocket>();
 var AvailablePlayers = new Stack<WebSocket>();
+var Database = new Database();
+Database.CreateTable("Players", new Player());
+
 // Add services to the container.
 builder.WebHost.UseUrls("http://localhost:6969");
 
@@ -20,6 +24,57 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 app.UseWebSockets();
+// A post api to register the player
+
+app.Map("/registerPlayer", async context =>
+{
+    if (context.Request.Method == "POST")
+    {
+        Console.WriteLine("here");
+        var body = context.Request.Body;
+
+        // save the data from the request body into a data variable
+        var data = new byte[1024];
+        var count = await body.ReadAsync(data);
+        var jsonString = Encoding.UTF8.GetString(data, 0, count);
+        if(jsonString == null) return;
+        Player player = JsonSerializer.Deserialize<Player>(jsonString);
+        if(player == null) return;
+        Database.InsertIntoTable("Players", player);
+        Console.WriteLine(player.player_name);
+        Console.WriteLine(player.player_password);
+
+        context.Response.StatusCode = 201;
+        await context.Response.WriteAsync("Player registered");
+    }
+});
+
+app.Map("/loginPlayer", async context =>{
+    
+    if (context.Request.Method == "POST")
+    {
+        var body = context.Request.Body;
+
+        // save the data from the request body into a data variable
+        var data = new byte[1024];
+        var count = await body.ReadAsync(data);
+        var jsonString = Encoding.UTF8.GetString(data, 0, count);
+        if(jsonString == null) return;
+        Player player = JsonSerializer.Deserialize<Player>(jsonString);
+        if(player == null) return;
+        var selectCmd = Database.GetConnection().CreateCommand();
+        selectCmd.CommandText = $"SELECT * FROM Players WHERE player_name = '{player.player_name}' AND player_password = '{player.player_password}'";
+        var reader = selectCmd.ExecuteReader();
+        if(reader.HasRows){
+            context.Response.StatusCode = 201;
+            await context.Response.WriteAsync("Player logged in");
+        }
+        else{
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsync("Player not authorized");
+        }
+    }
+});
 app.Map("/ws", async context =>
 {
     if (context.WebSockets.IsWebSocketRequest)
