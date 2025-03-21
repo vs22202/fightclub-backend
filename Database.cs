@@ -1,6 +1,6 @@
 using Microsoft.Data.Sqlite;
 public class Database {
-    private SqliteConnection connection; 
+    private readonly SqliteConnection connection; 
     public Database() {
         connection = new SqliteConnection("Data Source=database.db");
         connection.Open();
@@ -9,11 +9,29 @@ public class Database {
         using var transaction = connection.BeginTransaction();
         var members = typeof(T).GetProperties();
         var memberNames = members.Select(m => m.Name);
-        string fieldNames = String.Join(",",memberNames);
+        string fieldNames = String.Join(",", memberNames.Select(name => $"{name} TEXT"));
 
         var createCmd = connection.CreateCommand();
         createCmd.CommandText = $"CREATE TABLE IF NOT EXISTS {tableName} ({fieldNames})";
         createCmd.ExecuteNonQuery();
+
+        // Check for new columns and add them if necessary
+        var existingColumnsCmd = connection.CreateCommand();
+        existingColumnsCmd.CommandText = $"PRAGMA table_info({tableName})";
+        var existingColumns = new List<string>();
+        using (var reader = existingColumnsCmd.ExecuteReader()) {
+            while (reader.Read()) {
+                existingColumns.Add(reader.GetString(1));
+            }
+        }
+
+        var newColumns = members.Select(member => member.Name).Where(name => !existingColumns.Contains(name));
+        foreach (var column in newColumns) {
+            var addColumnCmd = connection.CreateCommand();
+            addColumnCmd.CommandText = $"ALTER TABLE {tableName} ADD COLUMN {column} TEXT";
+            addColumnCmd.ExecuteNonQuery();
+        }
+
         transaction.Commit();
     }
     public void InsertIntoTable<T>(string tableName , T obj) {
